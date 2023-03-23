@@ -238,9 +238,9 @@ const MainPage = () => {
     if (connected && account) {
       return (
         <div className="flex flex-col gap-2 w-full">
-          <Link href="/">
+          <strong>
             Wallet: <div id="address">{currentWallet?.adapter.name}</div>
-          </Link>
+          </strong>
           <strong>
             Address: <div id="address">{account?.address?.toString()}</div>
           </strong>
@@ -311,6 +311,7 @@ const MainPage = () => {
   };
   return (
     <div className="w-full h-[100vh] flex justify-center items-center">
+      <Link href="/">site</Link>
       <div className="flex justify-center max-w-2xl">{renderContent()}</div>
     </div>
   );
