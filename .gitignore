@@ -4,9 +4,10 @@
 /node_modules
 /.pnp
 .pnp.js
+
 # testing
 /coverage
-.env
+
 # next.js
 /.next/
 /out/

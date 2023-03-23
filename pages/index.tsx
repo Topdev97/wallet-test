@@ -1,290 +1,318 @@
-import { AptosClient, Types } from "aptos";
-import { useWallet } from "@aptos-labs/wallet-adapter-react";
-import { WalletSelector } from "@aptos-labs/wallet-adapter-ant-design";
-import { WalletConnector } from "@aptos-labs/wallet-adapter-mui-design";
-import { useState } from "react";
-import { ErrorAlert, SuccessAlert } from "../components/Alert";
-import dynamic from "next/dynamic";
-import Image from "next/image";
-import { useAutoConnect } from "../components/AutoConnectProvider";
-import Link from "next/link";
+/* eslint-disable no-unused-vars */
+import { Button, Spin } from 'antd';
+import { useMemo, useState } from 'react';
+import { LoadingOutlined } from '@ant-design/icons';
+import { AptosClient, Types } from 'aptos';
+import {
+  useWallet,
+  SignMessageResponse,
+  WalletAdapterNetwork
+} from '@manahippo/aptos-wallet-adapter';
+import { DEVNET_NODE_URL, MAINNET_NODE_URL } from '../config/aptosConstants';
+import { faucetClient } from '../config/aptosClient';
+import { AptosAccount } from 'aptos';
 
-const WalletButtons = dynamic(() => import("../components/WalletButtons"), {
-  suspense: false,
-  ssr: false,
-});
-
-export const DEVNET_NODE_URL = "https://fullnode.devnet.aptoslabs.com/v1";
-
-const aptosClient = new AptosClient(DEVNET_NODE_URL, {
-  WITH_CREDENTIALS: false,
-});
-
-export default function App() {
+const MainPage = () => {
+  const [txLoading, setTxLoading] = useState({
+    sign: false,
+    transaction: false,
+    faucet: false
+  });
+  const [txLinks, setTxLinks] = useState<string[]>([]);
+  const [faucetTxLinks, setFaucetTxLinks] = useState<string[]>([]);
+  const [signature, setSignature] = useState<string | SignMessageResponse>('');
   const {
-    connected,
+    autoConnect,
+    connect,
     disconnect,
     account,
-    network,
-    wallet,
+    wallets,
     signAndSubmitTransaction,
-    signTransaction,
+    connecting,
+    connected,
+    disconnecting,
+    wallet: currentWallet,
     signMessage,
-    signMessageAndVerify,
+    signTransaction,
+    network
   } = useWallet();
 
-  const { autoConnect, setAutoConnect } = useAutoConnect();
-  const [successAlertMessage, setSuccessAlertMessage] = useState<string>("");
-  const [errorAlertMessage, setErrorAlertMessage] = useState<string>("");
-
-  const onSignAndSubmitTransaction = async () => {
-    const payload: Types.TransactionPayload = {
-      type: "entry_function_payload",
-      function: "0x1::coin::transfer",
-      type_arguments: ["0x1::aptos_coin::AptosCoin"],
-      arguments: [account?.address, 1], // 1 is in Octas
+  const { aptosClient } = useMemo(() => {
+    return {
+      aptosClient:
+        network?.name === WalletAdapterNetwork.Mainnet
+          ? new AptosClient(MAINNET_NODE_URL)
+          : new AptosClient(DEVNET_NODE_URL)
     };
-    try {
-      const response = await signAndSubmitTransaction(payload);
-      await aptosClient.waitForTransaction(response?.hash || "");
-      setSuccessAlertMessage(
-        `https://explorer.aptoslabs.com/txn/${response?.hash}`
+  }, [network?.name]);
+
+  const renderWalletConnectorGroup = () => {
+    return wallets.map((wallet) => {
+      const option = wallet.adapter;
+      return (
+        <Button
+          onClick={() => {
+            connect(option.name);
+          }}
+          id={option.name.split(' ').join('_')}
+          key={option.name}
+          className="connect-btn">
+          {option.name}
+        </Button>
       );
-    } catch (error: any) {
-      console.log("error", error);
-      setErrorAlertMessage(error);
+    });
+  };
+
+  const signTransac = async () => {
+    try {
+      setTxLoading({
+        ...txLoading,
+        transaction: true
+      });
+      if (account?.address || account?.publicKey) {
+        const addressKey = account?.address?.toString() || account?.publicKey?.toString() || '';
+        const demoAccount = new AptosAccount();
+        await faucetClient.fundAccount(demoAccount.address(), 0);
+        const payload: Types.TransactionPayload = {
+          type: 'entry_function_payload',
+          function: '0x1::coin::transfer',
+          type_arguments: ['0x1::aptos_coin::AptosCoin'],
+          arguments: [
+            demoAccount.address().hex(),
+            ['Fewcha'].includes(currentWallet?.adapter?.name || '') ? 717 : '717'
+          ]
+        };
+        const transactionRes = await signTransaction(payload);
+        console.log('test sign transaction: ', transactionRes);
+      }
+    } catch (err: any) {
+      console.log('tx error: ', err.msg || err.message);
+    } finally {
+      setTxLoading({
+        ...txLoading,
+        transaction: false
+      });
     }
   };
 
-  const onSignTransaction = async () => {
-    const payload: Types.TransactionPayload = {
-      type: "entry_function_payload",
-      function: "0x1::coin::transfer",
-      type_arguments: ["0x1::aptos_coin::AptosCoin"],
-      arguments: [account?.address, 1], // 1 is in Octas
-    };
+  const transferToken = async () => {
     try {
-      const response = await signTransaction(payload);
-      setSuccessAlertMessage(JSON.stringify(response));
-      console.log("response", response);
-    } catch (error: any) {
-      console.log("error", error);
-      setErrorAlertMessage(error);
+      setTxLoading({
+        ...txLoading,
+        transaction: true
+      });
+      const txOptions = {
+        max_gas_amount: '1000',
+        gas_unit_price: '1'
+      };
+      if (account?.address || account?.publicKey) {
+        const demoAccount = new AptosAccount();
+        await faucetClient.fundAccount(demoAccount.address(), 0);
+        const payload: Types.TransactionPayload = {
+          type: 'entry_function_payload',
+          function: '0x1::coin::transfer',
+          type_arguments: ['0x1::aptos_coin::AptosCoin'],
+          arguments: [
+            demoAccount.address().hex(),
+            ['Fewcha'].includes(currentWallet?.adapter?.name || '') ? 717 : '717'
+          ]
+        };
+        const transactionRes = await signAndSubmitTransaction(payload, txOptions);
+        await aptosClient.waitForTransaction(transactionRes?.hash || '');
+        const links = [
+          ...txLinks,
+          `https://explorer.${network.name}.aptos.dev/txn/${transactionRes?.hash}`
+        ];
+        setTxLinks(links);
+      }
+    } catch (err: any) {
+      console.log('tx error: ', err.msg || err.message);
+    } finally {
+      setTxLoading({
+        ...txLoading,
+        transaction: false
+      });
     }
   };
 
-  const onSignMessage = async () => {
-    const payload = {
-      message: "Hello from Aptos Wallet Adapter",
-      nonce: "random_string",
-    };
+  const renderTxLinks = () => {
+    return txLinks.map((link: string, index: number) => (
+      <div className="flex gap-2 transaction" key={link}>
+        <p>{index + 1}.</p>
+        <a href={link} target="_blank" rel="noreferrer" className="underline">
+          {link}
+        </a>
+      </div>
+    ));
+  };
+
+  const renderFaucetTxLinks = () => {
+    return faucetTxLinks.map((link: string, index: number) => (
+      <div className="flex gap-2 faucet" key={link}>
+        <p>{index + 1}.</p>
+        <a href={link} target="_blank" rel="noreferrer" className="underline">
+          {link}
+        </a>
+      </div>
+    ));
+  };
+
+  const messageToSign = useMemo(
+    () =>
+      `Hello from account ${
+        Array.isArray(account?.publicKey)
+          ? JSON.stringify(account?.publicKey, null, 2)
+          : account?.publicKey?.toString() || account?.address?.toString() || ''
+      }`,
+    [account]
+  );
+
+  const signMess = async () => {
     try {
-      const response = await signMessage(payload);
-      setSuccessAlertMessage(JSON.stringify(response));
-      console.log("response", response);
-    } catch (error: any) {
-      console.log("error", error);
-      setErrorAlertMessage(error);
+      setTxLoading({
+        ...txLoading,
+        sign: true
+      });
+      const nonce = 'random_string';
+      const msgPayload = [
+        'pontem',
+        'petra',
+        'martian',
+        'fewcha',
+        'rise wallet',
+        'snap',
+        'bitkeep',
+        'blocto',
+        'coin98',
+        'foxwallet',
+        'openblock'
+      ].includes(currentWallet?.adapter?.name?.toLowerCase() || '')
+        ? {
+            message: messageToSign,
+            nonce
+          }
+        : messageToSign;
+      const signedMessage = await signMessage(msgPayload);
+      const response = typeof signedMessage === 'string' ? signedMessage : signedMessage.signature;
+      setSignature(response);
+    } catch (err: any) {
+      console.log('tx error: ', err.msg);
+    } finally {
+      setTxLoading({
+        ...txLoading,
+        sign: false
+      });
     }
   };
 
-  const onSignMessageAndVerify = async () => {
-    const payload = {
-      message: "Hello from Aptos Wallet Adapter",
-      nonce: "random_string",
-    };
+  const fundAccount = async () => {
     try {
-      const response = await signMessageAndVerify(payload);
-      setSuccessAlertMessage(
-        JSON.stringify({ onSignMessageAndVerify: response })
+      setTxLoading({
+        ...txLoading,
+        faucet: true
+      });
+      if (account?.address) {
+        const transactionRes = await faucetClient.fundAccount(account.address, 50000);
+        await aptosClient.waitForTransaction(`0x${transactionRes[0]}` || '');
+        const links = [
+          ...faucetTxLinks,
+          `https://explorer.devnet.aptos.dev/txn/0x${transactionRes[0]}`
+        ];
+        setFaucetTxLinks(links);
+      }
+    } catch (err: any) {
+      console.log('tx error: ', err.msg);
+    } finally {
+      setTxLoading({
+        ...txLoading,
+        faucet: false
+      });
+    }
+  };
+
+  const renderContent = () => {
+    if (connecting || disconnecting) {
+      return <Spin indicator={<LoadingOutlined style={{ fontSize: 48 }} spin />} />;
+    }
+    if (connected && account) {
+      return (
+        <div className="flex flex-col gap-2 w-full">
+          <strong>
+            Wallet: <div id="address">{currentWallet?.adapter.name}</div>
+          </strong>
+          <strong>
+            Address: <div id="address">{account?.address?.toString()}</div>
+          </strong>
+          <strong>
+            Public Key:{' '}
+            <div id="publicKey" className="whitespace-pre">
+              {Array.isArray(account?.publicKey)
+                ? JSON.stringify(account.publicKey, null, 2)
+                : account?.publicKey?.toString()}
+            </div>
+          </strong>
+          <strong>
+            AuthKey: <div id="authKey">{account?.authKey?.toString()}</div>
+          </strong>
+          <strong>Message to Sign : {messageToSign}</strong>
+          {signature ? (
+            <div className="flex gap-2 transaction">
+              <strong>Signature: </strong>
+              <textarea
+                className="w-full"
+                readOnly
+                rows={4}
+                value={
+                  typeof signature !== 'string' && signature.address
+                    ? signature.address
+                    : Array.isArray(signature)
+                    ? JSON.stringify(signature)
+                    : (signature as string)
+                }
+              />
+            </div>
+          ) : (
+            <Button id="signBtn" onClick={() => signMess()} loading={txLoading.sign}>
+              Sign Message
+            </Button>
+          )}
+          {/* <Button id="signTransacBtn" onClick={() => signTransac()} loading={txLoading.transaction}>
+            Sign Transaction
+          </Button> */}
+          <Button id="transferBtn" onClick={() => transferToken()} loading={txLoading.transaction}>
+            Transfer Token
+          </Button>
+          <Button id="faucetBtn" onClick={() => fundAccount()} loading={txLoading.faucet}>
+            Faucet
+          </Button>
+          <Button
+            id="disconnectBtn"
+            onClick={() => {
+              setTxLinks([]);
+              setSignature('');
+              disconnect();
+            }}>
+            Disconnect
+          </Button>
+          <div className="mt-4">
+            <h4>Transaction History:</h4>
+            <div className="flex flex-col gap-2">{renderTxLinks()}</div>
+          </div>
+          <div className="mt-4">
+            <h4>Faucet History:</h4>
+            <div className="flex flex-col gap-2">{renderFaucetTxLinks()}</div>
+          </div>
+        </div>
       );
-      console.log("response", response);
-    } catch (error: any) {
-      console.log("error", error);
-      setErrorAlertMessage(JSON.stringify({ onSignMessageAndVerify: error }));
+    } else {
+      return <div className="flex flex-col gap-4">{renderWalletConnectorGroup()}</div>;
     }
   };
-
   return (
-    <div>
-      {successAlertMessage.length > 0 && (
-        <SuccessAlert text={successAlertMessage} />
-      )}
-      {errorAlertMessage.length > 0 && <ErrorAlert text={errorAlertMessage} />}
-      <Link href="/">
-        <h1 className="flex justify-center mt-2 mb-4 text-4xl font-extrabold tracking-tight leading-none text-black">
-          Aptos Wallet Adapter Demo (Devnet)
-        </h1>
-      </Link>
-      <table className="table-auto w-full border-separate border-spacing-y-8 shadow-lg bg-white border-separate">
-        <tbody>
-          <tr>
-            <td className="px-8 py-4 w-1/4">
-              <h3>Connect a Wallet</h3>
-            </td>
-            <td className="px-8 py-4 w-3/4">
-              <WalletButtons />
-            </td>
-          </tr>
-          <tr>
-            <td className="px-8 py-4 border-t w-1/4">
-              <h3>Wallet Select</h3>
-            </td>
-            <td className="px-8 py-4 border-t w-3/4"></td>
-          </tr>
-          <tr>
-            <td className="px-8 py-4 w-1/4">
-              <h3>Ant Design</h3>
-            </td>
-            <td className="px-8 py-4 w-3/4">
-              <WalletSelector />
-            </td>
-          </tr>
-          <tr>
-            <td className="px-8 py-4 w-1/4">
-              <h3>MUI Design</h3>
-            </td>
-            <td className="px-8 py-4 w-3/4">
-              <WalletConnector />
-            </td>
-          </tr>
-          <tr>
-            <td className="px-8 py-4 border-t w-1/4">
-              <h3>Actions</h3>
-            </td>
-            <td className="px-8 py-4 border-t break-all w-3/4">
-              <div>
-                <button
-                  className={`bg-blue-500  text-white font-bold py-2 px-4 rounded mr-4 ${
-                    !connected
-                      ? "opacity-50 cursor-not-allowed"
-                      : "hover:bg-blue-700"
-                  }`}
-                  onClick={disconnect}
-                  disabled={!connected}
-                >
-                  Disconnect
-                </button>
-                <button
-                  className={`bg-blue-500  text-white font-bold py-2 px-4 rounded mr-4 ${
-                    !connected
-                      ? "opacity-50 cursor-not-allowed"
-                      : "hover:bg-blue-700"
-                  }`}
-                  onClick={onSignAndSubmitTransaction}
-                  disabled={!connected}
-                >
-                  Sign and submit transaction
-                </button>
-                <button
-                  className={`bg-blue-500  text-white font-bold py-2 px-4 rounded mr-4 ${
-                    !connected
-                      ? "opacity-50 cursor-not-allowed"
-                      : "hover:bg-blue-700"
-                  }`}
-                  onClick={onSignTransaction}
-                  disabled={!connected}
-                >
-                  Sign transaction
-                </button>
-                <button
-                  className={`bg-blue-500 text-white font-bold py-2 px-4 rounded mr-4 ${
-                    !connected
-                      ? "opacity-50 cursor-not-allowed"
-                      : "hover:bg-blue-700"
-                  }`}
-                  onClick={onSignMessage}
-                  disabled={!connected}
-                >
-                  Sign Message
-                </button>
-
-                <button
-                  className={`bg-orange-500 text-white font-bold py-2 px-4 rounded mr-4 ${
-                    !connected
-                      ? "opacity-50 cursor-not-allowed"
-                      : "hover:bg-orange-700"
-                  }`}
-                  onClick={onSignMessageAndVerify}
-                  disabled={!connected}
-                >
-                  Sign Message and Verify
-                </button>
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td className="px-8 py-4 border-t w-1/4">
-              <h3>Wallet Name</h3>
-            </td>
-            <td className="px-8 py-4 border-t w-3/4">
-              <div style={{ display: "flex" }}>
-                {wallet && (
-                  <Image
-                    src={wallet.icon}
-                    alt={wallet.name}
-                    width={25}
-                    height={25}
-                  />
-                )}
-                {wallet?.name}
-              </div>
-              <div>
-                <a
-                  target="_blank"
-                  className="text-sky-600"
-                  rel="noreferrer"
-                  href={wallet?.url}
-                >
-                  {wallet?.url}
-                </a>
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td className="px-8 py-4 border-t">
-              <h3>Account</h3>
-            </td>
-            <td className="px-8 py-4 border-t break-all">
-              <div>{account ? JSON.stringify(account) : ""}</div>
-            </td>
-          </tr>
-          <tr>
-            <td className="px-8 py-4 border-t">
-              <h3>Network</h3>
-            </td>
-            <td className="px-8 py-4 border-t">
-              <div>{network ? JSON.stringify(network) : ""}</div>
-            </td>
-          </tr>
-
-          <tr>
-            <td className="px-8 py-4 border-t">
-              <h3>auto connect</h3>
-            </td>
-            <td className="px-8 py-4 border-t">
-              <div className="relative flex flex-col overflow-hidden">
-                <div className="flex">
-                  <label className="inline-flex relative items-center mr-5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="sr-only peer"
-                      checked={autoConnect}
-                      readOnly
-                    />
-                    <div
-                      onClick={() => {
-                        setAutoConnect(!autoConnect);
-                      }}
-                      className="w-11 h-6 bg-gray-200 rounded-full peer  peer-focus:ring-green-300  peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"
-                    ></div>
-                  </label>
-                </div>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <div className="w-full h-[100vh] flex justify-center items-center">
+      <div className="flex justify-center max-w-2xl">{renderContent()}</div>
     </div>
   );
-}
+};
+
+export default MainPage;
