@@ -11,6 +11,7 @@ import {
 import { DEVNET_NODE_URL, MAINNET_NODE_URL } from '../config/aptosConstants';
 import { faucetClient } from '../config/aptosClient';
 import { AptosAccount } from 'aptos';
+import Link from 'next/link';
 
 const MainPage = () => {
   const [txLoading, setTxLoading] = useState({
@@ -237,9 +238,9 @@ const MainPage = () => {
     if (connected && account) {
       return (
         <div className="flex flex-col gap-2 w-full">
-          <strong>
+          <Link href="/">
             Wallet: <div id="address">{currentWallet?.adapter.name}</div>
-          </strong>
+          </Link>
           <strong>
             Address: <div id="address">{account?.address?.toString()}</div>
           </strong>
